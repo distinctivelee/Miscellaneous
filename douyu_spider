@@ -1,0 +1,87 @@
+import requests
+from lxml import etree
+import re
+import time
+import json
+
+
+header_base = {
+'Host': 'www.douyu.com',
+'Connection': 'keep-alive',
+'Cache-Control': 'max-age=0',
+'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.132 Safari/537.36',
+'Upgrade-Insecure-Requests': '1',
+'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+'Accept-Encoding': 'gzip, deflate, br',
+'Accept-Language': 'zh-CN,zh;q=0.9',
+}
+
+response = requests.get('https://www.douyu.com/directory/all', headers=header_base)
+print(response.status_code)
+
+
+html = etree.HTML(response.text)
+
+# 通过 xpath 规则提取数据
+zhubo_list = html.xpath("//span[@class='dy-name ellipsis fl']/text()")
+leixing_list = html.xpath("//span[@class='tag ellipsis']/text()")
+renshu_list = html.xpath("//span[@class='dy-num fr']/text()")
+
+
+'''
+# 无法直接从代码中获取页码
+page_num_list = html.xpath("//a[@class='shark-pager-item']/text()")
+max_page_num = page_num_list[-1]
+print('max_page_num : ', max_page_num)
+'''
+
+# 通过正则表达式获取最大页面数据
+page_str = re.compile(r'count: "(\d+)"').search(response.text).group()
+max_page = int( page_str.split('"')[1] )
+print("max_page : ", max_page)
+
+
+# 循环遍历数据
+text_list = []
+for zhubo, leixing, renshu in zip(zhubo_list, leixing_list, renshu_list):
+    # 将有单位的字符串数据转换成整数
+    try:
+        renshu = int(renshu)
+    except:
+        renshu = int(float(renshu[:-1]) * 10000)
+    text_list.append( zhubo + '\t' + leixing + '\t' + str(renshu))
+
+# 将数据写入文件
+with open('douyu.csv', 'w') as f:
+    f.write('\n'.join(text_list))
+
+
+# 循环访问分页
+for page_num in range(2, max_page):
+    # 拼接 url
+    url_str = "https://www.douyu.com/gapi/rkc/directory/0_0/" + str(page_num)
+
+    # 对 url 发送请求
+    response = requests.get(url_str, headers=header_base)
+    print(url_str)
+    print(response.status_code)
+
+    # 新建列表，用于保持每页数据的信息
+    text_list = []
+    # 将响应的数据转成 json 对象
+    json_obj = json.loads(response.text, encoding='utf-8')
+    # 获得每个直播的信息
+    for one_info in json_obj['data']['rl'] :
+        # 主播 ：one_info['nn']
+        # 类型 ：one_info['c2name']
+        # 人数 ：one_info['ol']
+        text_list.append(one_info['nn'] + '\t' + one_info['c2name'] + '\t' + str(one_info['ol']))
+
+    # 将数据写入文件
+    with open('douyu.csv', 'a') as f:
+        f.write('\n' + '\n'.join(text_list))
+
+    time.sleep(2)
+
+
+
